@@ -5,15 +5,15 @@
 #include <fstream>
 #include "omp.h";
 
-int const N = 32;
-float const eps = 1.0;
+int const N = 32;//размеры матриц и массивов
+//float const eps = 1.0; тут конечное число итераций
 float const h = 1.0 / N;
 float X[N + 1];
 float Y[N + 1];
 
-float U[N + 1][N + 1];
-float UPred[N + 1][N + 1];
-float tempArr[N + 1][N + 1];
+float solveMatrix[N + 1][N + 1];
+float predictionMatrix[N + 1][N + 1];
+float solveBufferMatrix[N + 1][N + 1];
 
 float f;
 bool FidndingWasEnd;
@@ -21,16 +21,10 @@ float maxDiffInArr;
 
 std::fstream out("ANSWER.txt");
 std::fstream diffOut("difference.txt");
-int printArrs()
-{
-    for (int i = 1; i < N+1; i++)
-    {
-        std::cout << "X: " << X[i] << "  " << "Y: " << Y[i] << std::endl;
-    }
-    return 0;
-}
+
 int fillVectors()
 {
+    //заполняет векторы X и Y по формуле
     for (int i = 1; i < N + 1; i++)
     {
         X[i] = X[i - 1] + h;
@@ -42,38 +36,48 @@ int fillVectors()
 
 int fillTempElDiff(int i, int j)
 {
-    tempArr[i][j] = std::abs(U[i][j] - UPred[i][j]);
+    //получает i j -- координаты элемента
+    //после чего из массива решения по i,j вычитается элемент их массива точного решения
+    //это все записывается в матрицу-буффер
+    solveBufferMatrix[i][j] = std::abs(solveMatrix[i][j] - predictionMatrix[i][j]);
     return 0;
 }
 
 
 int fillUArrayElement(int i, int j)
 {
-    if (i == 0 || i == N) U[i][j] = Y[j] * Y[j] - Y[j] + 1;
-    else if (j == 0 || j == N) U[i][j] = X[i] * X[i] - X[i] + 1;
-    else U[i][j] = 0.0;
+    if (i == 0 || i == N) solveMatrix[i][j] = Y[j] * Y[j] - Y[j] + 1;
+    else if (j == 0 || j == N) solveMatrix[i][j] = X[i] * X[i] - X[i] + 1;
+    else solveMatrix[i][j] = 0.0;
     return 0;
 }
 int fillTempOnSolve(int i, int j)
 {
+    //f -- считается, используя массивы X и Y
+    //записывает во временную матрицу нга место i j результат вычеслений, который Получен с помощью массивов
+    //X, Y и массива Текущего решения
     f = 4 + 2 * X[i] * X[i] - 2 * X[i] + 2 * Y[j] * Y[j] - 2 * Y[j];
-    tempArr[i][j] = 0.25 * (U[i - 1][j] + U[i + 1][j] + U[i][j - 1] + U[i][j + 1] - h * h * f);
+    solveBufferMatrix[i][j] = 0.25 * (solveMatrix[i - 1][j] + solveMatrix[i + 1][j] + solveMatrix[i][j - 1] + solveMatrix[i][j + 1] - h * h * f);
     return 0;
 }
 int fillUPredElement(int i, int j)
 {
-    UPred[i][j] = (X[i] * X[i] - X[i] + 1) * (Y[j] * Y[j] - Y[j] + 1);
+    //заполеняет матрицу точного решения
+    predictionMatrix[i][j] = (X[i] * X[i] - X[i] + 1) * (Y[j] * Y[j] - Y[j] + 1);
     return 0;
 }
 
 int CopyFromTempToU(int i, int j)
 {
-    U[i][j] = tempArr[i][j];
+    //Копирование из массива-буффера в массив решения(для позиции i j)
+    solveMatrix[i][j] = solveBufferMatrix[i][j];
     return 0;
 }
 
 int fillMatrix(int(*fillArrElement)(int, int), int start, int stop)
 {
+    //Применяет функцию, переданную сюда к каждому элементу массива(от начала до конца)
+    //на массив ссылка идет прямо из функции
     for (int i = start; i < stop; i++)
     {
         for (int j = start; j < stop; j++)
@@ -86,6 +90,7 @@ int fillMatrix(int(*fillArrElement)(int, int), int start, int stop)
 
 int printMatrix(float arr[][N + 1])
 {
+    //выводит элементы матрицы с двойной точностью
     for (int i = 0; i < N + 1; i++)
     {
         for (int j = 0; j < N + 1; j++)
@@ -99,26 +104,35 @@ int printMatrix(float arr[][N + 1])
 
 int solve()
 {
-#pragma omp parallel
-    FidndingWasEnd = false;
+    //параллельность
+#pragma omp parallel num_threads(8)
+    //FidndingWasEnd = false;
+    
+    //у меня тут конечное чимсло итераций, чтобы не вподало в ступор
     for (int k = 0; k < 500000; k++)
     {
+        //на каждой итерации найденная ошибка обнуляется
+        //заполняется матрица-буффер, там все вычисляется на основе матрицы-решения
+        //(на первой итерации при k=0 матрица решения состоит из нулей и границы)
+        //матрица-буффер копируется в матрицу решения
         maxDiffInArr = 0.0;
         fillMatrix(*fillTempOnSolve, 1,N);
         fillMatrix(*CopyFromTempToU, 1, N);
+        //вычисляет максимальную ошибку
         for (int i = 1; i < N; i++)
         {
             for (int j = 1; j < N; j++)
             {
-                if (std::abs(U[i][j] - UPred[i][j]) > maxDiffInArr)
+                if (std::abs(solveMatrix[i][j] - predictionMatrix[i][j]) > maxDiffInArr)
                 {
-                    maxDiffInArr = std::abs(U[i][j] - UPred[i][j]);
+                    maxDiffInArr = std::abs(solveMatrix[i][j] - predictionMatrix[i][j]);
                 }
             }
         }
-        if (k % 100 == 0)
+        if (k % 1000 == 0)
         {
             diffOut << k << " " << maxDiffInArr << std::endl;
+            std::cout << k << " " << maxDiffInArr << std::endl;
         }
     }
     return 0;
@@ -131,7 +145,7 @@ int OutputTotxtFile()
     {
         for (int j = 0; j < N+1; j++)
         {
-            out << i << " " << j << " " << U[i][j]<<std::endl;
+            out << i << " " << j << " " << solveMatrix[i][j]<<std::endl;
         }
     }
     out.close();
@@ -147,28 +161,16 @@ int main()
     fillMatrix(*fillUArrayElement, 0, N + 1);
     fillMatrix(*fillUPredElement, 0, N + 1);
 
-    printArrs();
+    //printArrs();
     std::cout << std::endl;
     solve();
     std::cout << "Solution" << std::endl;
-    printMatrix(U);
+    printMatrix(solveMatrix);
     std::cout << "Prediction solution (Upred)" << std::endl;
-    printMatrix(UPred);
+    printMatrix(predictionMatrix);
     std::cout << "Difference matrix" << std::endl;
     fillMatrix(*fillTempElDiff, 0, N + 1);
-    printMatrix(tempArr);
+    printMatrix(solveBufferMatrix);
     OutputTotxtFile();
 
 }
-
-// Запуск программы: CTRL+F5 или меню "Отладка" > "Запуск без отладки"
-// Отладка программы: F5 или меню "Отладка" > "Запустить отладку"
-
-
-// Советы по началу работы 
-//   1. В окне обозревателя решений можно добавлять файлы и управлять ими.
-//   2. В окне Team Explorer можно подключиться к системе управления версиями.
-//   3. В окне "Выходные данные" можно просматривать выходные данные сборки и другие сообщения.
-//   4. В окне "Список ошибок" можно просматривать ошибки.
-//   5. Последовательно выберите пункты меню "Проект" > "Добавить новый элемент", чтобы создать файлы кода, или "Проект" > "Добавить существующий элемент", чтобы добавить в проект существующие файлы кода.
-//   6. Чтобы снова открыть этот проект позже, выберите пункты меню "Файл" > "Открыть" > "Проект" и выберите SLN-файл.
