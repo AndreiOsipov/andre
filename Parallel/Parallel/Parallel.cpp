@@ -3,8 +3,9 @@
 
 #include <iostream>
 #include <fstream>
+#include "omp.h";
 
-int const N = 512;
+int const N = 32;
 float const eps = 1.0;
 float const h = 1.0 / N;
 float X[N + 1];
